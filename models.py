@@ -17,3 +17,4 @@ class Part(Base):
     unit_cost = Column(Float)
     unit_price = Column(Float)
     part_pic = Column(String)  # This could be a filename or URL
+# vidy was here
