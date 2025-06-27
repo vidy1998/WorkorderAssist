@@ -1,8 +1,8 @@
-from fastapi import FastAPI, UploadFile, File, Form, Depends, APIRouter, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi import FastAPI, UploadFile, File, Form, Depends, APIRouter, HTTPException, Body
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from datetime import datetime
-import os, shutil, json
+import os, shutil, json, subprocess, mimetypes
 from email.message import EmailMessage
 import smtplib
 from dotenv import load_dotenv
@@ -30,6 +30,7 @@ def send_email(subject, body):
         smtp.login(EMAIL_USER, EMAIL_PASS)
         smtp.send_message(msg)
 
+
 @router.get("/travel-time/")
 def get_travel_time_partial(location: str, db: Session = Depends(get_db)):
     results = db.query(Travel).filter(Travel.location.ilike(f"%{location}%")).all()
@@ -40,6 +41,43 @@ def get_travel_time_partial(location: str, db: Session = Depends(get_db)):
         }
         for travel in results
     ]
+
+@router.post("/create-workorder/")
+async def create_workorder(
+    folder_name: str = Form(...),
+    json_data: str = Form(...),
+    pdf_file: UploadFile = File(...)
+):
+    print("=== Folder Name ===")
+    print(folder_name)
+
+    print("=== Raw JSON Data String ===")
+    print(json_data)
+
+    import json
+    try:
+        data = json.loads(json_data)
+        print("=== Parsed JSON ===")
+        print(data)
+    except Exception as e:
+        print("JSON parse error:", e)
+        return {"error": "Invalid JSON"}
+
+    # ✅ Create folder
+    folder_path = os.path.join("media", folder_name)
+    os.makedirs(folder_path, exist_ok=True)
+
+    # ✅ Save JSON
+    json_path = os.path.join(folder_path, f"{folder_name}.json")
+    with open(json_path, "w") as f:
+        json.dump(data, f, indent=4)
+
+    # ✅ Save PDF
+    pdf_path = os.path.join(folder_path, "workorder.pdf")
+    with open(pdf_path, "wb") as f:
+        f.write(await pdf_file.read())
+
+    return {"status": "saved", "folder": folder_name}
 
 @router.post("/travel/")
 def add_travel(location: str = Form(...), travel_time_hours: float = Form(...), db: Session = Depends(get_db)):
@@ -160,30 +198,10 @@ app = FastAPI()
 app.include_router(router)
 MEDIA_ROOT = "media"
 os.makedirs(MEDIA_ROOT, exist_ok=True)
-
 app.mount("/media", StaticFiles(directory=MEDIA_ROOT), name="media")
 
 
 # 1. Upload workorder PDF + JSON
-@app.post("/create-workorder/")
-async def create_workorder(
-    folder_name: str = Form(...),
-    json_file: UploadFile = File(...),
-    pdf_file: UploadFile = File(...)
-):
-    workorder_path = os.path.join(MEDIA_ROOT, folder_name)
-    os.makedirs(workorder_path, exist_ok=True)
-
-    json_path = os.path.join(workorder_path, json_file.filename)
-    pdf_path = os.path.join(workorder_path, pdf_file.filename)
-
-    with open(json_path, "wb") as jf:
-        shutil.copyfileobj(json_file.file, jf)
-
-    with open(pdf_path, "wb") as pf:
-        shutil.copyfileobj(pdf_file.file, pf)
-
-    return {"message": "workorder files uploaded", "folder": folder_name}
 
 # 2. Upload Images
 @app.post("/upload-images/")
@@ -198,13 +216,25 @@ async def upload_images(folder_name: str = Form(...), files: list[UploadFile] = 
             shutil.copyfileobj(img.file, f)
         saved_files.append(img.filename)
 
+        # Generate thumbnail if it's a video
+        if img.filename.lower().endswith((".mp4", ".webm", ".mov")):
+            thumb_name = f"{os.path.splitext(img.filename)[0]}_thumb.jpg"
+            thumb_path = os.path.join(folder_path, thumb_name)
+            print(f"Saving thumbnail: {thumb_path}")
+            # Use ffmpeg to extract thumbnail at 1-second mark
+            subprocess.run([
+                "ffmpeg", "-i", img_path,
+                "-ss", "00:00:01", "-vframes", "1",
+                "-q:v", "2", thumb_path
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
     # 📬 Load workorder JSON (if it exists) and send email
     json_path = os.path.join(folder_path, f"{folder_name}.json")
     if os.path.exists(json_path):
         with open(json_path, "r") as jf:
             workorder_data = json.load(jf)
-            workorder_subject_number = f"{workorder_data.get('work_order_number', 'N/A')}"
-            workorder_info = f"Customer: {workorder_data.get('customer', 'N/A')}\nSite Address: {workorder_data.get('site_address', 'N/A')}\nStatus: {workorder_data.get('job_status', 'N/A')}"
+            workorder_subject_number = f"{workorder_data.get('workOrderNumber', 'N/A')}"
+            workorder_info = f"Customer: {workorder_data.get('customer', 'N/A')}\nSite Address: {workorder_data.get('siteAddress', 'N/A')}\nStatus: {workorder_data.get('jobStatus', 'N/A')}"
     else:
         workorder_info = "No workorder data found."
 
@@ -218,6 +248,82 @@ async def upload_images(folder_name: str = Form(...), files: list[UploadFile] = 
     return {"message": "Images uploaded", "files": saved_files}
 
 from fastapi import UploadFile, File, Form
+
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
+
+@app.get("/list-Images")
+def list_media_files(folder_name: str):
+    folder_path = os.path.join(MEDIA_ROOT, folder_name)
+    if not os.path.exists(folder_path):
+        raise HTTPException(status_code=404, detail="Folder not found")
+
+    media_urls = []
+    for file in os.listdir(folder_path):
+        ext = file.lower().split('.')[-1]
+        if ext in ["jpg", "jpeg", "png", "gif", "webp", "mp4", "mov", "webm"]:
+            url = f"/media/{folder_name}/{file}"
+            media_urls.append(url)
+
+    return JSONResponse(content={"media": media_urls})
+
+@app.post("/add-Images/")
+async def add_images(folder_name: str = Form(...), files: list[UploadFile] = File(...)):
+    folder_path = os.path.join(MEDIA_ROOT, folder_name)
+    os.makedirs(folder_path, exist_ok=True)
+
+    saved_files = []
+    for file in files:
+        file_path = os.path.join(folder_path, file.filename)
+        with open(file_path, "wb") as f:
+            shutil.copyfileobj(file.file, f)
+        saved_files.append(file.filename)
+
+        # Generate thumbnail if it's a video
+        if file.filename.lower().endswith((".mp4", ".webm", ".mov")):
+            thumb_name = f"{os.path.splitext(file.filename)[0]}_thumb.jpg"
+            thumb_path = os.path.join(folder_path, thumb_name)
+            subprocess.run([
+                "ffmpeg", "-i", file_path,
+                "-ss", "00:00:01", "-vframes", "1",
+                "-q:v", "2", thumb_path
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    return JSONResponse(content={"message": "Media uploaded", "files": saved_files})
+
+@app.delete("/delete-Image/")
+def delete_Image(folder_name: str, filename: str):
+    folder_path = os.path.join(MEDIA_ROOT, folder_name)
+    file_path = os.path.join(folder_path, filename)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Determine what to delete
+    deleted = []
+
+    # If it's a video, delete its thumbnail too
+    if filename.lower().endswith((".mp4", ".mov", ".webm")):
+        thumb_name = f"{os.path.splitext(filename)[0]}_thumb.jpg"
+        thumb_path = os.path.join(folder_path, thumb_name)
+        if os.path.exists(thumb_path):
+            os.remove(thumb_path)
+            deleted.append(thumb_name)
+
+    # If it's a thumbnail, delete the corresponding video
+    elif filename.endswith("_thumb.jpg"):
+        video_base = filename.replace("_thumb.jpg", "")
+        for ext in ["mp4", "mov", "webm"]:
+            video_path = os.path.join(folder_path, f"{video_base}.{ext}")
+            if os.path.exists(video_path):
+                os.remove(video_path)
+                deleted.append(f"{video_base}.{ext}")
+
+    # Finally delete the given file
+    os.remove(file_path)
+    deleted.append(filename)
+
+    return JSONResponse(content={"message": "Deleted", "files": deleted})
 
 @app.put("/workorder/")
 def update_workorder(
@@ -240,22 +346,173 @@ def update_workorder(
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
-@app.get("/album/{folder_name}", response_class=HTMLResponse)
-def album(folder_name: str):
+from fastapi.responses import HTMLResponse
+import os
+import json
+
+@app.get("/album/{folder_name}/", response_class=HTMLResponse)
+def view_album(folder_name: str):
     folder_path = os.path.join(MEDIA_ROOT, folder_name)
     if not os.path.exists(folder_path):
-        return HTMLResponse(f"<h2>Folder '{folder_name}' not found.</h2>", status_code=404)
+        return HTMLResponse(content="Folder not found", status_code=404)
 
     files = os.listdir(folder_path)
-    images = [f for f in files if f.lower().endswith((".jpg", ".jpeg", ".png", ".heic", ".webp", ".gif"))]
+    media_items = []
 
-    html_content = f"<h2>Album: {folder_name}</h2><div style='display:flex;flex-wrap:wrap;gap:12px;'>"
-    for img in images:
-        img_url = f"/media/{folder_name}/{img}"
-        html_content += f"<div><img src='{img_url}' style='max-width:200px'><p>{img}</p></div>"
-    html_content += "</div>"
+    for file in files:
+        if file.endswith("_thumb.jpg"):
+            continue  # skip thumbnails
 
-    return HTMLResponse(content=html_content)
+        ext = file.split(".")[-1].lower()
+        if ext in ["jpg", "jpeg", "png", "gif", "webp"]:
+            media_items.append({"type": "image", "src": f"/media/{folder_name}/{file}"})
+        elif ext in ["mp4", "mov", "webm"]:
+            thumb = f"{os.path.splitext(file)[0]}_thumb.jpg"
+            media_items.append({
+                "type": "video",
+                "src": f"/media/{folder_name}/{file}",
+                "thumb": f"/media/{folder_name}/{thumb}"
+            })
+
+    # Inject HTML with media_items
+    items_html = ""
+    for item in media_items:
+        if item["type"] == "image":
+            items_html += f'<img class="thumb" src="{item["src"]}" onclick="openModal(\'{item["src"]}\', \'image\')">'
+        else:
+            items_html += f'<img class="thumb" src="{item["thumb"]}" onclick="openModal(\'{item["src"]}\', \'video\')">'
+
+    return f"""
+    <html>
+    <head>
+        <title>Gallery - {folder_name}</title>
+        <style>
+            body {{
+                font-family: sans-serif;
+                background: #f0f0f0;
+                padding: 20px;
+                text-align: center;
+            }}
+            .thumb {{
+                width: 260px;
+                height: 340px;
+                object-fit: cover;
+                margin: 10px;
+                border: 2px solid #ccc;
+                cursor: pointer;
+                transition: 0.3s;
+            }}
+            .thumb:hover {{
+                transform: scale(1.05);
+            }}
+            #modal {{
+                display: none;
+                position: fixed;
+                top: 0; left: 0;
+                width: 100%; height: 100%;
+                background: rgba(0,0,0,0.9);
+                justify-content: center;
+                align-items: center;
+                z-index: 1000;
+                flex-direction: column;
+            }}
+            #modalContent {{
+                max-width: 90%;
+                max-height: 80%;
+            }}
+            .nav {{
+                color: white;
+                font-size: 80px;
+                position: absolute;
+                top: 50%;
+                transform: translateY(-50%);
+                cursor: pointer;
+                z-index: 1001;
+                padding 20px;
+            }}
+            #prevBtn {{ left: 30px; }}
+            #nextBtn {{ right: 30px; }}
+            #closeBtn {{
+                position: absolute;
+                top: 20px;
+                right: 30px;
+                font-size: 60px;
+                cursor: pointer;
+                color: white;
+                z-index: 1002;
+                padding 10px;
+            }}
+        </style>
+    </head>
+    <body>
+        <h2>📂 Gallery for {folder_name}</h2>
+        <div id="gallery">{items_html}</div>
+
+        <div id="modal" onclick="handleBackdropClick(event)">
+            <span id="closeBtn" onclick="closeModal()">&times;</span>
+            <span class="nav" id="prevBtn" onclick="navigate(-1)">&#10094;</span>
+            <div id="modalContent"></div>
+            <span class="nav" id="nextBtn" onclick="navigate(1)">&#10095;</span>
+        </div>
+
+
+        <script>
+            let items = {media_items};
+            let currentIndex = 0;
+
+            function openModal(src, type) {{
+                currentIndex = items.findIndex(item => item.src === src);
+                showCurrent();
+                document.getElementById("modal").style.display = "flex";
+            }}
+
+            function showCurrent() {{
+                const item = items[currentIndex];
+                const modalContent = document.getElementById("modalContent");
+                if (item.type === "image") {{
+                    modalContent.innerHTML = `<img src="${{item.src}}" style="max-width: 100%; max-height: 100%;">`;
+                }} else {{
+                    modalContent.innerHTML = `<video controls autoplay src="${{item.src}}" style="max-width: 100%; max-height: 100%; background:black;"></video>`;
+                }}
+            }}
+
+            function closeModal() {{
+                document.getElementById("modal").style.display = "none";
+            }}
+
+            function navigate(dir) {{
+                currentIndex = (currentIndex + dir + items.length) % items.length;
+                showCurrent();
+            }}
+            
+            let touchStartX = 0;
+            let touchEndX = 0;
+        
+            document.getElementById("modal").addEventListener("touchstart", e => {{
+                touchStartX = e.changedTouches[0].screenX;
+            }});
+        
+            document.getElementById("modal").addEventListener("touchend", e => {{
+                touchEndX = e.changedTouches[0].screenX;
+                handleGesture();
+            }});
+        
+            function handleGesture() {{
+                if (touchEndX < touchStartX - 50) navigate(1);   // Swipe left
+                if (touchEndX > touchStartX + 50) navigate(-1);  // Swipe right
+            }}
+            
+            function handleBackdropClick(event) {{
+                const modalContent = document.getElementById("modalContent");
+                if (!modalContent.contains(event.target)) {{
+                    closeModal();
+                }}
+            }}
+            
+        </script>
+    </body>
+    </html>
+    """
 
 @app.get("/workorders")
 def list_workorders():
