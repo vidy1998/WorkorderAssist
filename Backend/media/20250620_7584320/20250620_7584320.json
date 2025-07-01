@@ -1,0 +1,26 @@
+{
+    "technician": "Vidy",
+    "date": "2025-06-21",
+    "inTime": "10:46\u202fPM",
+    "outTime": "10:47\u202fPM",
+    "workOrderNumber": "7584320",
+    "purchaseOrderNumber": "92839",
+    "customer": "Vidy",
+    "siteAddress": "Our house",
+    "travelLocation": "Toronto",
+    "travelHours": "1.5",
+    "siteContact": "Maria",
+    "phoneNumber": "6477126552",
+    "jobDescription": "I love Vidy",
+    "workPerformed": "Vidy loves me",
+    "parts": [
+        {
+            "name": "Lube",
+            "unit_price": "",
+            "quantity": "1"
+        }
+    ],
+    "jobStatus": "Job Complete",
+    "orientation": "Yes",
+    "hotWorkPermit": "Yes"
+}

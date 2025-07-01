@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import Travel, Part
 
+
 router = APIRouter()
 
 # Load environment variables from .env
@@ -29,6 +30,44 @@ def send_email(subject, body):
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(EMAIL_USER, EMAIL_PASS)
         smtp.send_message(msg)
+
+@router.post("/create-workorder/")
+async def create_workorder(
+    folder_name: str = Form(...),
+    json_data: str = Form(...),
+    pdf_file: UploadFile = File(...)
+):
+    print("=== Folder Name ===")
+    print(folder_name)
+
+    print("=== Raw JSON Data String ===")
+    print(json_data)
+
+    import json
+    try:
+        data = json.loads(json_data)
+        print("=== Parsed JSON ===")
+        print(data)
+    except Exception as e:
+        print("JSON parse error:", e)
+        return {"error": "Invalid JSON"}
+
+    # ✅ Create folder
+    folder_path = os.path.join("media", folder_name)
+    os.makedirs(folder_path, exist_ok=True)
+
+    # ✅ Save JSON
+    json_path = os.path.join(folder_path, f"{folder_name}.json")
+    with open(json_path, "w") as f:
+        json.dump(data, f, indent=4)
+
+    # ✅ Save PDF
+    pdf_path = os.path.join(folder_path, "workorder.pdf")
+    with open(pdf_path, "wb") as f:
+        f.write(await pdf_file.read())
+
+    return {"status": "saved", "folder": folder_name}
+
 
 @router.get("/travel-time/")
 def get_travel_time_partial(location: str, db: Session = Depends(get_db)):
@@ -165,25 +204,7 @@ app.mount("/media", StaticFiles(directory=MEDIA_ROOT), name="media")
 
 
 # 1. Upload workorder PDF + JSON
-@app.post("/create-workorder/")
-async def create_workorder(
-    folder_name: str = Form(...),
-    json_file: UploadFile = File(...),
-    pdf_file: UploadFile = File(...)
-):
-    workorder_path = os.path.join(MEDIA_ROOT, folder_name)
-    os.makedirs(workorder_path, exist_ok=True)
 
-    json_path = os.path.join(workorder_path, json_file.filename)
-    pdf_path = os.path.join(workorder_path, pdf_file.filename)
-
-    with open(json_path, "wb") as jf:
-        shutil.copyfileobj(json_file.file, jf)
-
-    with open(pdf_path, "wb") as pf:
-        shutil.copyfileobj(pdf_file.file, pf)
-
-    return {"message": "workorder files uploaded", "folder": folder_name}
 
 # 2. Upload Images
 @app.post("/upload-images/")
