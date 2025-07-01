@@ -1,13 +1,37 @@
 {
-  "work_order_number": "101745",
-  "po_number": "1009",
-  "customer": "Arcelormitial Tailored Blanks",
-  "site_address": "10 Holtby Ave Brampton",
-  "site_contact": "Mohammad Beni",
-  "phone_number": "905-451-2400",
-  "phone_number_extension": "7480",
-  "job_description": "",
-  "work_performed": "",
-  "job_status": "Job Complete"
-
+  "technician": "Vidy",
+  "date": "2025-06-30",
+  "week": "130",
+  "inTime": "",
+  "outTime": "",
+  "workOrderNumber": "876543",
+  "purchaseOrderNumber": "",
+  "customer": "Labeeba",
+  "siteAddress": "Labeeba’s house",
+  "travelLocation": "Downtown Toronto",
+  "travelHours": "1.5",
+  "siteContact": "Vidy",
+  "phoneNumber": "",
+  "jobDescription": "",
+  "workPerformed": "",
+  "parts": [
+    {
+      "name": "LABOUR",
+      "unit_price": "96.70",
+      "quantity": "4",
+      "total_price": "386.80"
+    },
+    {
+      "name": "ELECTRICAL KIT",
+      "unit_price": "16.20",
+      "quantity": "1",
+      "total_price": "16.20"
+    }
+  ],
+  "totalBeforeTax": "403.00",
+  "taxAmount": "52.39",
+  "totalAfterTax": "455.39",
+  "jobStatus": "",
+  "orientation": "",
+  "hotWorkPermit": ""
 }

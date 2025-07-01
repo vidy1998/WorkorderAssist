@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from sqlalchemy.orm import Session
 from database import get_db
 from models import Travel, Part
+from typing import List
 
 router = APIRouter()
 
@@ -18,6 +19,7 @@ load_dotenv()
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 EMAIL_TO = os.getenv("EMAIL_TO")
+
 
 def send_email(subject, body):
     msg = EmailMessage()
@@ -44,9 +46,9 @@ def get_travel_time_partial(location: str, db: Session = Depends(get_db)):
 
 @router.post("/create-workorder/")
 async def create_workorder(
-    folder_name: str = Form(...),
-    json_data: str = Form(...),
-    pdf_file: UploadFile = File(...)
+        folder_name: str = Form(...),
+        json_data: str = Form(...),
+        pdf_file: UploadFile = File(...)
 ):
     print("=== Folder Name ===")
     print(folder_name)
@@ -79,6 +81,7 @@ async def create_workorder(
 
     return {"status": "saved", "folder": folder_name}
 
+
 @router.post("/travel/")
 def add_travel(location: str = Form(...), travel_time_hours: float = Form(...), db: Session = Depends(get_db)):
     new_travel = Travel(
@@ -90,8 +93,10 @@ def add_travel(location: str = Form(...), travel_time_hours: float = Form(...), 
     db.refresh(new_travel)
     return {"message": "Travel entry added", "travel": new_travel}
 
+
 @router.put("/travel/{travel_id}")
-def update_travel(travel_id: int, location: str = Form(...), travel_time_hours: float = Form(...), db: Session = Depends(get_db)):
+def update_travel(travel_id: int, location: str = Form(...), travel_time_hours: float = Form(...),
+                  db: Session = Depends(get_db)):
     travel = db.query(Travel).get(travel_id)
     if not travel:
         raise HTTPException(status_code=404, detail="Travel entry not found")
@@ -101,6 +106,7 @@ def update_travel(travel_id: int, location: str = Form(...), travel_time_hours: 
 
     db.commit()
     return {"message": "Travel entry updated", "travel": travel}
+
 
 @router.delete("/travel/{travel_id}")
 def delete_travel(travel_id: int, db: Session = Depends(get_db)):
@@ -128,8 +134,10 @@ def get_matching_parts(part_name: str, db: Session = Depends(get_db)):
         for part in results
     ]
 
+
 @router.post("/parts/")
-def add_part(part_name: str = Form(...), part_number: str = Form(...), unit_cost: float = Form(...), unit_price: float = Form(...), part_pic: str = Form(...), db: Session = Depends(get_db)):
+def add_part(part_name: str = Form(...), part_number: str = Form(...), unit_cost: float = Form(...),
+             unit_price: float = Form(...), part_pic: str = Form(...), db: Session = Depends(get_db)):
     new_part = Part(
         part_name=part_name,
         part_number=part_number,
@@ -142,8 +150,10 @@ def add_part(part_name: str = Form(...), part_number: str = Form(...), unit_cost
     db.refresh(new_part)
     return {"message": "Part added", "part": new_part}
 
+
 @router.put("/parts/{part_id}")
-def update_part(part_id: int, part_name: str = Form(...), part_number: str = Form(...), unit_cost: float = Form(...), unit_price: float = Form(...), part_pic: str = Form(...), db: Session = Depends(get_db)):
+def update_part(part_id: int, part_name: str = Form(...), part_number: str = Form(...), unit_cost: float = Form(...),
+                unit_price: float = Form(...), part_pic: str = Form(...), db: Session = Depends(get_db)):
     part = db.query(Part).get(part_id)
     if not part:
         raise HTTPException(status_code=404, detail="Part not found")
@@ -156,6 +166,7 @@ def update_part(part_id: int, part_name: str = Form(...), part_number: str = For
 
     db.commit()
     return {"message": "Part updated", "part": part}
+
 
 @router.delete("/parts/{part_id}")
 def delete_part(part_id: int, db: Session = Depends(get_db)):
@@ -180,10 +191,10 @@ def search_workorders(query: str):
             with open(json_file, "r") as f:
                 data = json.load(f)
                 if (
-                    query.lower() in data.get("customer", "").lower()
-                    or query.lower() in data.get("site_address", "").lower()
-                    or query.lower() in data.get("po_number", "").lower()
-                    or query.lower() in data.get("site_contact", "").lower()
+                        query.lower() in data.get("customer", "").lower()
+                        or query.lower() in data.get("site_address", "").lower()
+                        or query.lower() in data.get("po_number", "").lower()
+                        or query.lower() in data.get("site_contact", "").lower()
                 ):
                     matching.append({
                         "folder": folder,
@@ -194,11 +205,14 @@ def search_workorders(query: str):
                     })
 
     return {"matches": matching}
+
+
 app = FastAPI()
 app.include_router(router)
 MEDIA_ROOT = "media"
 os.makedirs(MEDIA_ROOT, exist_ok=True)
 app.mount("/media", StaticFiles(directory=MEDIA_ROOT), name="media")
+app.mount("/parts-media", StaticFiles(directory="parts_media"), name="parts-media")
 
 
 # 1. Upload workorder PDF + JSON
@@ -247,10 +261,44 @@ async def upload_images(folder_name: str = Form(...), files: list[UploadFile] = 
 
     return {"message": "Images uploaded", "files": saved_files}
 
+
 from fastapi import UploadFile, File, Form
 
 from fastapi.responses import FileResponse
 from fastapi import HTTPException
+
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MEDIA_PATH = os.path.join(BASE_DIR, "media")
+
+@app.get("/workorders/week/{week_number}", response_model=List[str])
+async def get_workorders_by_week(week_number: str):
+    workorders = []
+    try:
+        for folder_name in os.listdir(MEDIA_PATH):
+            folder_path = os.path.join(MEDIA_PATH, folder_name)
+            print(f"Checking folder: {folder_path}")
+
+            if os.path.isdir(folder_path):
+                for file in os.listdir(folder_path):
+                    if file.endswith(".json"):
+                        json_path = os.path.join(folder_path, file)
+                        print(f"Reading json: {json_path}")
+
+                        with open(json_path, 'r') as f:
+                            data = json.load(f)
+
+                        print(f"Week in JSON: {data.get('week')}")
+
+                        if str(data.get("week")) == str(week_number):
+                            workorders.append(folder_name)
+    except Exception as e:
+        print(f"Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return workorders
+
+
 
 @app.get("/list-Images")
 def list_media_files(folder_name: str):
@@ -266,6 +314,7 @@ def list_media_files(folder_name: str):
             media_urls.append(url)
 
     return JSONResponse(content={"media": media_urls})
+
 
 @app.post("/add-Images/")
 async def add_images(folder_name: str = Form(...), files: list[UploadFile] = File(...)):
@@ -290,6 +339,7 @@ async def add_images(folder_name: str = Form(...), files: list[UploadFile] = Fil
             ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     return JSONResponse(content={"message": "Media uploaded", "files": saved_files})
+
 
 @app.delete("/delete-Image/")
 def delete_Image(folder_name: str, filename: str):
@@ -325,10 +375,11 @@ def delete_Image(folder_name: str, filename: str):
 
     return JSONResponse(content={"message": "Deleted", "files": deleted})
 
+
 @app.put("/workorder/")
 def update_workorder(
-    folder_name: str = Form(...),
-    updated_json: UploadFile = File(...)
+        folder_name: str = Form(...),
+        updated_json: str = Form(...)  # receive as plain string form field
 ):
     workorder_path = os.path.join(MEDIA_ROOT, folder_name)
     json_path = os.path.join(workorder_path, f"{folder_name}.json")
@@ -337,10 +388,10 @@ def update_workorder(
     if not os.path.exists(workorder_path):
         return JSONResponse(status_code=404, content={"error": "Workorder folder not found"})
 
-    # ✅ Overwrite the existing JSON file
+    # ✅ Overwrite the existing JSON file with the string content
     try:
-        with open(json_path, "wb") as f:
-            shutil.copyfileobj(updated_json.file, f)
+        with open(json_path, "w") as f:
+            f.write(updated_json)
         return {"message": "Workorder JSON successfully updated", "path": json_path}
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
@@ -349,6 +400,7 @@ def update_workorder(
 from fastapi.responses import HTMLResponse
 import os
 import json
+
 
 @app.get("/album/{folder_name}/", response_class=HTMLResponse)
 def view_album(folder_name: str):
@@ -514,6 +566,7 @@ def view_album(folder_name: str):
     </html>
     """
 
+
 @app.get("/workorders")
 def list_workorders():
     try:
@@ -525,6 +578,7 @@ def list_workorders():
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+
 @app.get("/workorder/{folder_name}")
 def get_workorder(folder_name: str):
     json_path = os.path.join(MEDIA_ROOT, folder_name, f"{folder_name}.json")
@@ -533,6 +587,7 @@ def get_workorder(folder_name: str):
     with open(json_path) as f:
         data = json.load(f)
     return data
+
 
 @app.delete("/workorder/{folder_name}")
 def delete_workorder(folder_name: str):
@@ -548,3 +603,20 @@ def delete_workorder(folder_name: str):
         raise HTTPException(status_code=500, detail=f"Error deleting workorder: {str(e)}")
 
 
+PARTS_MEDIA_ROOT = "/WorkorderAssist/parts_media"
+
+
+@app.get("/parts_media/{filename}")
+async def get_part_image(filename: str):
+    file_path = os.path.join(PARTS_MEDIA_ROOT, filename)
+
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    else:
+        return {"error": "File not found"}
+
+
+@app.get("/WorkorderAssist/parts-media/")
+async def list_part_images():
+    files = os.listdir(PARTS_MEDIA_ROOT)
+    return {"files": files}

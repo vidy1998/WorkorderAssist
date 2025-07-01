@@ -1,6 +1,26 @@
-document.getElementById("modal").addEventListener("click", function (e) {
-        const isModalContent = e.target.closest("#modalContent");
-        const isArrow = e.target.closest(".nav");
-        if (!isModalContent && !isArrow) {
-            closeModal();
-        }
+MEDIA_PATH = "/media"
+
+@app.get("/workorders/week/{week_number}", response_model=List[str])
+async def get_workorders_by_week(week_number: str):
+    workorders = []
+    try:
+        for folder_name in os.listdir(MEDIA_PATH):
+            folder_path = os.path.join(MEDIA_PATH, folder_name)
+
+            if os.path.isdir(folder_path):
+                for file in os.listdir(folder_path):
+                    if file.endswith(".json"):
+                        json_path = os.path.join(folder_path, file)
+
+                        try:
+                            with open(json_path, 'r') as f:
+                                data = json.load(f)
+                        except json.JSONDecodeError:
+                            continue  # skip invalid json files
+
+                        if str(data.get("week")) == str(week_number):
+                            workorders.append(folder_name)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return workorders
