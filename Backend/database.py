@@ -7,7 +7,7 @@ DB_NAME = "workorders"
 DB_USER = "workuser"
 DB_PASSWORD = "workpassword"
 DB_HOST = "localhost"
-DB_PORT = "5000"
+DB_PORT = "5432"
 
 SQLALCHEMY_DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
 
