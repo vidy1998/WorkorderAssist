@@ -14,12 +14,6 @@ A **React Native + FastAPI-powered mobile application** built to help field tech
   * Dynamic form fields: customer/site info, work performed, travel log, parts used, time log
   * Auto-calculated part totals based on real-time pricing
 
-* 🧾 **PDF + JSON Data Export**
-
-  * Submissions saved as both PDF and JSON
-  * Structured folders named `MMDDYYYY_<work_order_number>`
-  * Files include all form data, cost breakdown, and uploaded media
-
 * 📱 **Expo Go Deployment (Real-Time Use)**
 
   * Built with **React Native using Expo**
